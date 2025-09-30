@@ -1,16 +1,22 @@
+# =========================
+# CATALOGO
+# =========================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: catalogo-service
   namespace: eventos-peru
-  labels: { app: catalogo-service }
+  labels:
+    app: catalogo-service
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: catalogo-service }
+    matchLabels:
+      app: catalogo-service
   template:
     metadata:
-      labels: { app: catalogo-service }
+      labels:
+        app: catalogo-service
       annotations:
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/role: "eventos-peru-role"
@@ -37,6 +43,8 @@ spec:
               value: /app/libs:/app/services/catalogo-service
             - name: PORT
               value: "8000"
+            - name: DOTENV_CONFIG_PATH
+              value: /vault/secrets/config
           command: ["sh","-lc"]
           args:
             - test -f /vault/secrets/config && . /vault/secrets/config; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir /app/services/catalogo-service --root-path /catalogo
@@ -44,8 +52,24 @@ spec:
             - name: http
               containerPort: 8000
           resources:
-            requests: { cpu: "50m", memory: "128Mi" }
-            limits:   { cpu: "250m", memory: "256Mi" }
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /catalogo/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /catalogo/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
 ---
 apiVersion: v1
 kind: Service
@@ -53,7 +77,8 @@ metadata:
   name: catalogo-service
   namespace: eventos-peru
 spec:
-  selector: { app: catalogo-service }
+  selector:
+    app: catalogo-service
   ports:
     - name: http
       port: 80
