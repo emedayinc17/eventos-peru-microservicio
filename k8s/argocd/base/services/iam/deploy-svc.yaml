@@ -1,21 +1,20 @@
+# =========================
+# IAM
+# =========================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: iam-service
   namespace: eventos-peru
-  labels:
-    app: iam-service
+  labels: { app: iam-service }
 spec:
   replicas: 1
   selector:
-    matchLabels:
-      app: iam-service
+    matchLabels: { app: iam-service }
   template:
     metadata:
-      labels:
-        app: iam-service
+      labels: { app: iam-service }
       annotations:
-        # === Vault Agent Injector (KV v2) ===
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/role: "eventos-peru-role"
         vault.hashicorp.com/agent-inject-secret-config: "kv/data/eventos-peru/iam"
@@ -34,30 +33,24 @@ spec:
       serviceAccountName: app-eventos
       containers:
         - name: app
-          image: eventos-iam  # reemplazado por overlay (e.g., emeday17/eventos-iam:<tag>)
+          image: eventos-iam  # overlay -> emeday17/eventos-iam:<tag>
           imagePullPolicy: Always
           env:
             - name: PYTHONPATH
               value: /app/libs:/app/services/iam-service
             - name: PORT
               value: "8000"
-            # Opcional: si tu código usa esta var para ubicar el dotenv
             - name: DOTENV_CONFIG_PATH
               value: /vault/secrets/config
           command: ["sh","-lc"]
           args:
-            - test -f /vault/secrets/config && . /vault/secrets/config; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir /app/services/iam-service --root-path /iam
+            - test -f /vault/secrets/config && . /vault/secrets/config; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir /app/services/iam-service
           ports:
             - name: http
               containerPort: 8000
           resources:
-            requests:
-              cpu: "50m"
-              memory: "128Mi"
-            limits:
-              cpu: "250m"
-              memory: "256Mi"
-          # (Opcional) health checks
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits:   { cpu: "250m", memory: "256Mi" }
           readinessProbe:
             httpGet:
               path: /iam/health
@@ -77,8 +70,7 @@ metadata:
   name: iam-service
   namespace: eventos-peru
 spec:
-  selector:
-    app: iam-service
+  selector: { app: iam-service }
   ports:
     - name: http
       port: 80

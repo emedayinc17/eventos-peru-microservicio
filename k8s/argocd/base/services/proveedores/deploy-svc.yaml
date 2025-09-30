@@ -1,22 +1,20 @@
 # =========================
 # PROVEEDORES
 # =========================
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: proveedores-service
   namespace: eventos-peru
-  labels:
-    app: proveedores-service
+  labels: { app: proveedores-service }
 spec:
   replicas: 1
   selector:
-    matchLabels:
-      app: proveedores-service
+    matchLabels: { app: proveedores-service }
   template:
     metadata:
-      labels:
-        app: proveedores-service
+      labels: { app: proveedores-service }
       annotations:
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/role: "eventos-peru-role"
@@ -47,17 +45,13 @@ spec:
               value: /vault/secrets/config
           command: ["sh","-lc"]
           args:
-            - test -f /vault/secrets/config && . /vault/secrets/config; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir /app/services/proveedores-service --root-path /proveedores
+            - test -f /vault/secrets/config && . /vault/secrets/config; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir /app/services/proveedores-service
           ports:
             - name: http
               containerPort: 8000
           resources:
-            requests:
-              cpu: "50m"
-              memory: "128Mi"
-            limits:
-              cpu: "250m"
-              memory: "256Mi"
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits:   { cpu: "250m", memory: "256Mi" }
           readinessProbe:
             httpGet:
               path: /proveedores/health
@@ -77,8 +71,7 @@ metadata:
   name: proveedores-service
   namespace: eventos-peru
 spec:
-  selector:
-    app: proveedores-service
+  selector: { app: proveedores-service }
   ports:
     - name: http
       port: 80
