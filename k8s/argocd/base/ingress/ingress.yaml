@@ -5,8 +5,21 @@ metadata:
   namespace: eventos-peru
   annotations:
     nginx.ingress.kubernetes.io/use-regex: "true"
-    # Reescribe /<svc>/... -> /... en el backend (p.ej. /iam/docs -> /docs)
+    # Reescribe /<svc>/... -> /... en el backend (ej: /iam/docs -> /docs)
     nginx.ingress.kubernetes.io/rewrite-target: /$2
+
+    # --- Swagger bajo subpaths sin cambiar código ---
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      # Para que /<svc>/docs pida /<svc>/openapi.json
+      sub_filter_once off;
+      sub_filter_types text/html;
+      gunzip on;
+      set $base "";
+      if ($uri ~* "^/([^/]+)/") { set $base "/$1"; }
+      sub_filter "/openapi.json" "$base/openapi.json";
+    # -------------------------------------------------
+
+    # Opcionales comunes
     nginx.ingress.kubernetes.io/enable-cors: "true"
     nginx.ingress.kubernetes.io/cors-allow-origin: "*"
     nginx.ingress.kubernetes.io/cors-allow-methods: "GET, PUT, POST, DELETE, PATCH, OPTIONS"
@@ -17,43 +30,26 @@ spec:
     - host: eventos.emeday.inc
       http:
         paths:
-          # IAM
           - path: /iam(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
-              service:
-                name: iam-service
-                port:
-                  number: 80
+              service: { name: iam-service, port: { number: 80 } }
 
-          # CATALOGO
           - path: /catalogo(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
-              service:
-                name: catalogo-service
-                port:
-                  number: 80
+              service: { name: catalogo-service, port: { number: 80 } }
 
-          # PROVEEDORES
           - path: /proveedores(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
-              service:
-                name: proveedores-service
-                port:
-                  number: 80
+              service: { name: proveedores-service, port: { number: 80 } }
 
-          # CONTRATACION
           - path: /contratacion(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
-              service:
-                name: contratacion-service
-                port:
-                  number: 80
+              service: { name: contratacion-service, port: { number: 80 } }
 
-# Si ya tienes TLS:
-#  tls:
-#    - hosts: [eventos.emeday.inc]
-#      secretName: eventos-peru-tls
+  # tls:
+  # - hosts: [eventos.emeday.inc]
+  #   secretName: eventos-peru-tls
