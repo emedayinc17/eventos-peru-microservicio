@@ -1,0 +1,128 @@
+kubectl apply -k overlays/dev
+
+
+# Conectarse a Vault
+kubectl -n vault exec -it statefulset/vault -c vault -- sh
+export VAULT_ADDR="http://vault.vault.svc:8200"
+export VAULT_TOKEN="hvs.gkRQhROesZuIqF92LvZgdrUI";
+
+vault status;                     
+vault operator unseal cHkld34KUc06V8ht0MnLpwbq18rGWhamiFYRoiany4Q=;
+vault status;     
+
+Vault (policies, roles, KV por servicio)
+
+
+# 1. Crear policy única
+vault policy write eventos-peru-app - <<'EOF'
+path "kv/data/eventos-peru/*" {
+  capabilities = ["read"]
+}
+path "kv/metadata/eventos-peru/*" {
+  capabilities = ["read"]
+}
+EOF
+
+
+# 2. Crear un solo rol
+vault write auth/kubernetes/role/eventos-peru-role \
+  bound_service_account_names=app-eventos \
+  bound_service_account_namespaces=eventos-peru \
+  policies=eventos-peru-app \
+  ttl=24h \
+  audiences=vault
+
+
+# Verificar
+vault read auth/kubernetes/role/eventos-peru-role
+
+# 3) 
+vault kv put kv/eventos-peru/iam \
+  APP_ENV=prod \
+  DB_HOST=mysql.eventos-peru.svc.cluster.local \
+  DB_PORT=3306 \
+  DB_USER=app_iam DB_PASS='IAM_2025' \
+  SCHEMA_IAM=ev_iam SCHEMA_CATALOGO=ev_catalogo SCHEMA_PROVEEDORES=ev_proveedores SCHEMA_CONTRATACION=ev_contratacion \
+  JWT_SECRET='cZrjiiFKBxwuScQv1qA11XevZYcLMq' ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+
+Catálogo
+vault kv patch kv/eventos-peru/catalogo \
+  APP_ENV="prod" \
+  DB_HOST="mysql.eventos-peru.svc.cluster.local" \
+  DB_PORT="3306" \
+  DB_USER="app_catalogo" \
+  DB_PASS="Catalogo_2025" \
+  DB_NAME="ev_catalogo" \
+  SCHEMA_CATALOGO="ev_catalogo" \
+  SCHEMA_PAQUETES="ev_paquetes" \
+  SCHEMA_IAM="ev_iam" \
+  SCHEMA_PROVEEDORES="ev_proveedores" \
+  SCHEMA_CONTRATACION="ev_contratacion" \
+  JWT_SECRET="cZrjiiFKBxwuScQv1qA11XevZYcLMq" \
+  ACCESS_TOKEN_EXPIRE_MINUTES="60"
+
+Proveedores
+vault kv patch kv/eventos-peru/proveedores \
+  APP_ENV="prod" \
+  DB_HOST="mysql.eventos-peru.svc.cluster.local" \
+  DB_PORT="3306" \
+  DB_USER="app_proveedores" \
+  DB_PASS="Proveedores_2025" \
+  DB_NAME="ev_proveedores" \
+  SCHEMA_PROVEEDORES="ev_proveedores" \
+  SCHEMA_IAM="ev_iam" \
+  SCHEMA_CATALOGO="ev_catalogo" \
+  SCHEMA_CONTRATACION="ev_contratacion" \
+  SCHEMA_PAQUETES="ev_paquetes" \
+  JWT_SECRET="cZrjiiFKBxwuScQv1qA11XevZYcLMq" \
+  ACCESS_TOKEN_EXPIRE_MINUTES="60"
+
+Contratación
+vault kv patch kv/eventos-peru/contratacion \
+  APP_ENV="prod" \
+  DB_HOST="mysql.eventos-peru.svc.cluster.local" \
+  DB_PORT="3306" \
+  DB_USER="app_contratacion" \
+  DB_PASS="Contrata_2025" \
+  DB_NAME="ev_contratacion" \
+  SCHEMA_CONTRATACION="ev_contratacion" \
+  SCHEMA_IAM="ev_iam" \
+  SCHEMA_CATALOGO="ev_catalogo" \
+  SCHEMA_PROVEEDORES="ev_proveedores" \
+  SCHEMA_PAQUETES="ev_paquetes" \
+  JWT_SECRET="cZrjiiFKBxwuScQv1qA11XevZYcLMq" \
+  ACCESS_TOKEN_EXPIRE_MINUTES="60"
+
+ IAM
+vault kv patch kv/eventos-peru/iam \
+  APP_ENV="prod" \
+  DB_HOST="mysql.eventos-peru.svc.cluster.local" \
+  DB_PORT="3306" \
+  DB_USER="app_iam" \
+  DB_PASS="IAM_2025" \
+  DB_NAME="ev_iam" \
+  JWT_SECRET="cZrjiiFKBxwuScQv1qA11XevZYcLMq" \
+  ACCESS_TOKEN_EXPIRE_MINUTES="60"
+
+vault kv get kv/eventos-peru/iam 
+vault kv get kv/eventos-peru/catalogo 
+
+
+
+# 4) Espera despliegues
+kubectl -n eventos-peru rollout status deploy/iam-service
+kubectl -n eventos-peru rollout status deploy/catalogo-service
+kubectl -n eventos-peru rollout status deploy/proveedores-service
+kubectl -n eventos-peru rollout status deploy/contratacion-service
+
+# 5) Verify ingress/health
+kubectl -n eventos-peru get ingress
+
+echo ">> Probar endpoints contra http://$INGRESS_HOST ..."
+curl -i "http://$INGRESS_HOST/api/iam/health" || true
+curl -i "http://$INGRESS_HOST/api/catalogo/health" || true
+curl -i "http://$INGRESS_HOST/api/proveedores/health" || true
+curl -i "http://$INGRESS_HOST/api/contratacion/health" || true
+
+echo "=== Flow finalizado ==="

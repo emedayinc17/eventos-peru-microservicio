@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proveedores-service
+  namespace: eventos-peru
+  labels: { app: proveedores-service }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: proveedores-service }
+  template:
+    metadata:
+      labels: { app: proveedores-service }
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "eventos-peru-role"
+        vault.hashicorp.com/agent-inject-secret-config: "kv/data/eventos-peru/proveedores"
+        vault.hashicorp.com/agent-inject-template-config: |
+          {{- with secret "kv/data/eventos-peru/proveedores" -}}
+          APP_ENV={{ .Data.data.APP_ENV }}
+          DB_HOST={{ .Data.data.DB_HOST }}
+          DB_PORT={{ .Data.data.DB_PORT }}
+          DB_USER={{ .Data.data.DB_USER }}
+          DB_PASS={{ .Data.data.DB_PASS }}
+          DB_NAME={{ .Data.data.DB_NAME }}
+          JWT_SECRET={{ .Data.data.JWT_SECRET }}
+          ACCESS_TOKEN_EXPIRE_MINUTES={{ .Data.data.ACCESS_TOKEN_EXPIRE_MINUTES }}
+          {{- end }}
+    spec:
+      serviceAccountName: app-eventos
+      containers:
+        - name: app
+          image: proveedores    # overlay -> emeday17/eventos-proveedores:<tag>
+          imagePullPolicy: Always
+          env:
+            - name: PYTHONPATH
+              value: /app/libs:/app/services/proveedores-service
+            - name: PORT
+              value: "8000"
+          command: ["sh","-lc"]
+          args:
+            - test -f /vault/secrets/config && . /vault/secrets/config; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir /app/services/proveedores-service --root-path /proveedores
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits:   { cpu: "250m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proveedores-service
+  namespace: eventos-peru
+spec:
+  selector: { app: proveedores-service }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000

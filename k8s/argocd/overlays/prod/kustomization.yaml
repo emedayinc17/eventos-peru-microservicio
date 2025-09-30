@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: eventos-peru
+resources:
+  - ../../base
+
+images:
+  - name: eventos-iam
+    newName: emeday17/eventos-iam
+    newTag: "0.1.0"
+  - name: catalogo
+    newName: emeday17/eventos-catalogo
+    newTag: "0.1.0"
+  - name: proveedores
+    newName: emeday17/eventos-proveedores
+    newTag: "0.1.0"
+  - name: contratacion
+    newName: emeday17/eventos-contratacion
+    newTag: "0.1.0"
+

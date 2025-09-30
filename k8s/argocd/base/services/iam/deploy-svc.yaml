@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iam-service
+  namespace: eventos-peru
+  labels: { app: iam-service }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: iam-service }
+  template:
+    metadata:
+      labels: { app: iam-service }
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "eventos-peru-role"
+
+        # Vault KV v2: usa "kv/data/..." en la anotación
+        vault.hashicorp.com/agent-inject-secret-config: "kv/data/eventos-peru/iam"
+        vault.hashicorp.com/agent-inject-template-config: |
+          {{- with secret "kv/data/eventos-peru/iam" -}}
+          APP_ENV={{ .Data.data.APP_ENV }}
+          DB_HOST={{ .Data.data.DB_HOST }}
+          DB_PORT={{ .Data.data.DB_PORT }}
+          DB_USER={{ .Data.data.DB_USER }}
+          DB_PASS={{ .Data.data.DB_PASS }}
+          DB_NAME={{ .Data.data.DB_NAME }}
+          JWT_SECRET={{ .Data.data.JWT_SECRET }}
+          ACCESS_TOKEN_EXPIRE_MINUTES={{ .Data.data.ACCESS_TOKEN_EXPIRE_MINUTES }}
+          {{- end }}
+    spec:
+      serviceAccountName: app-eventos
+      containers:
+        - name: app
+          image: eventos-iam     # overlay la reemplaza por emeday17/eventos-iam:<tag>
+          imagePullPolicy: Always
+          env:
+            - name: PYTHONPATH
+              value: /app/libs:/app/services/iam-service
+            - name: PORT
+              value: "8000"
+          command: ["sh","-lc"]
+          args:
+            - test -f /vault/secrets/config && . /vault/secrets/config; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir /app/services/iam-service --root-path /iam
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits:   { cpu: "250m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iam-service
+  namespace: eventos-peru
+spec:
+  selector: { app: iam-service }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000

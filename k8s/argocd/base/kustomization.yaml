@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: eventos-peru
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - ingress/ingress.yaml
+  - services/db_mysql
+  - services/iam/deploy-svc.yaml
+  - services/catalogo/deploy-svc.yaml
+  - services/proveedores/deploy-svc.yaml
+  - services/contratacion/deploy-svc.yaml
+
+images:
+  - name: eventos-iam
+  - name: eventos-catalogo
+  - name: eventos-proveedores
+  - name: eventos-contratacion

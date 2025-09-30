@@ -1,0 +1,59 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: eventos-api
+  namespace: eventos-peru
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # Reescribe /<svc>/... -> /... en el backend (p.ej. /iam/docs -> /docs)
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, PUT, POST, DELETE, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: eventos.emeday.inc
+      http:
+        paths:
+          # IAM
+          - path: /iam(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: iam-service
+                port:
+                  number: 80
+
+          # CATALOGO
+          - path: /catalogo(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: catalogo-service
+                port:
+                  number: 80
+
+          # PROVEEDORES
+          - path: /proveedores(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: proveedores-service
+                port:
+                  number: 80
+
+          # CONTRATACION
+          - path: /contratacion(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: contratacion-service
+                port:
+                  number: 80
+
+# Si ya tienes TLS:
+#  tls:
+#    - hosts: [eventos.emeday.inc]
+#      secretName: eventos-peru-tls
