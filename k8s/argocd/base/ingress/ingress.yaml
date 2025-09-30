@@ -5,21 +5,22 @@ metadata:
   namespace: eventos-peru
   annotations:
     nginx.ingress.kubernetes.io/use-regex: "true"
-    # Reescribe /<svc>/... -> /... en el backend (p.ej. /iam/docs -> /docs)
+    # Reescribe /<svc>/... -> /... en el backend (ej: /iam/docs -> /docs)
     nginx.ingress.kubernetes.io/rewrite-target: /$2
 
-    # --- Swagger bajo subpaths sin tocar código ---
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      # Reemplaza en HTML y JS la ruta del OpenAPI para que use el prefijo actual (/iam, /catalogo, ...)
-      sub_filter_once off;
-      sub_filter_types text/html application/javascript;
-      gunzip on;
-      set $base "";
-      if ($uri ~* "^/([^/]+)(/|$)") { set $base "/$1"; }
-      sub_filter "/openapi.json" "$base/openapi.json";
-    # ------------------------------------------------
+    # Redirección inteligente de /openapi.json según el Referer (sin tocar código)
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location = /openapi.json {
+        set $dest "";
+        if ($http_referer ~* "/iam/")          { set $dest "/iam/openapi.json"; }
+        if ($http_referer ~* "/catalogo/")     { set $dest "/catalogo/openapi.json"; }
+        if ($http_referer ~* "/proveedores/")  { set $dest "/proveedores/openapi.json"; }
+        if ($http_referer ~* "/contratacion/") { set $dest "/contratacion/openapi.json"; }
+        if ($dest = "") { return 404; }
+        return 302 $dest;
+      }
 
-    # Opcionales comunes
+    # (Opcional) CORS/Rate limit comunes
     nginx.ingress.kubernetes.io/enable-cors: "true"
     nginx.ingress.kubernetes.io/cors-allow-origin: "*"
     nginx.ingress.kubernetes.io/cors-allow-methods: "GET, PUT, POST, DELETE, PATCH, OPTIONS"
@@ -32,19 +33,35 @@ spec:
         paths:
           - path: /iam(/|$)(.*)
             pathType: ImplementationSpecific
-            backend: { service: { name: iam-service, port: { number: 80 } } }
+            backend:
+              service:
+                name: iam-service
+                port:
+                  number: 80
 
           - path: /catalogo(/|$)(.*)
             pathType: ImplementationSpecific
-            backend: { service: { name: catalogo-service, port: { number: 80 } } }
+            backend:
+              service:
+                name: catalogo-service
+                port:
+                  number: 80
 
           - path: /proveedores(/|$)(.*)
             pathType: ImplementationSpecific
-            backend: { service: { name: proveedores-service, port: { number: 80 } } }
+            backend:
+              service:
+                name: proveedores-service
+                port:
+                  number: 80
 
           - path: /contratacion(/|$)(.*)
             pathType: ImplementationSpecific
-            backend: { service: { name: contratacion-service, port: { number: 80 } } }
+            backend:
+              service:
+                name: contratacion-service
+                port:
+                  number: 80
 
   # tls:
   # - hosts: [eventos.emeday.inc]
