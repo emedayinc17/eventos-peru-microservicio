@@ -17,24 +17,23 @@ spec:
       annotations:
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/role: "eventos-peru-role"
-        # >>> crea este secreto con las mismas claves que IAM (mismo JWT_SECRET)
         vault.hashicorp.com/agent-inject-secret-config: "kv/data/eventos-peru/catalogo"
         vault.hashicorp.com/agent-inject-template-config: |
           {{- with secret "kv/data/eventos-peru/catalogo" -}}
-          APP_ENV={{ .Data.data.APP_ENV }}
-          DB_HOST={{ .Data.data.DB_HOST }}
-          DB_PORT={{ .Data.data.DB_PORT }}
-          DB_USER={{ .Data.data.DB_USER }}
-          DB_PASS={{ .Data.data.DB_PASS }}
-          DB_NAME={{ .Data.data.DB_NAME }}
-          JWT_SECRET={{ .Data.data.JWT_SECRET }}
-          JWT_ALG={{ .Data.data.JWT_ALG }}
+          APP_ENV='{{ .Data.data.APP_ENV }}'
+          DB_HOST='{{ .Data.data.DB_HOST }}'
+          DB_PORT='{{ .Data.data.DB_PORT }}'
+          DB_USER='{{ .Data.data.DB_USER }}'
+          DB_PASS='{{ .Data.data.DB_PASS }}'
+          DB_NAME='{{ .Data.data.DB_NAME }}'
+          JWT_SECRET='{{ .Data.data.JWT_SECRET }}'
+          JWT_ALG='{{ .Data.data.JWT_ALG }}'
           {{- end }}
     spec:
       serviceAccountName: app-eventos
       containers:
         - name: app
-          image: eventos-catalogo   # <- tu imagen
+          image: emeday17/eventos-catalogo:0.1.0   # <-- ajusta si usas otro tag
           imagePullPolicy: Always
           env:
             - name: BASE_PATH
@@ -43,16 +42,20 @@ spec:
               value: /app/libs:/app/services/catalogo-service
             - name: PORT
               value: "8000"
-            - name: DOTENV_CONFIG_PATH
-              value: /vault/secrets/config
-          command: ["sh","-lc"]
+          command: ["uvicorn"]
           args:
-            - test -f /vault/secrets/config && . /vault/secrets/config; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir /app/services/catalogo-service
+            - app.main:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --app-dir
+            - /app/services/catalogo-service
           ports:
             - name: http
               containerPort: 8000
           resources:
-            requests: { cpu: "50m", memory: "128Mi" }
+            requests: { cpu: "50m",  memory: "128Mi" }
             limits:   { cpu: "250m", memory: "256Mi" }
           readinessProbe:
             httpGet: { path: /health, port: http }
