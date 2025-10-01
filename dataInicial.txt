@@ -1,0 +1,4 @@
+{
+  "email": "demo@eventos.pe",
+  "password": "Admin_2025!"
+}
