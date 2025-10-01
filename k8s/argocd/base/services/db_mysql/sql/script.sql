@@ -526,7 +526,7 @@ CREATE EVENT ev_proveedores.evt_expira_holds
        AND expira_en <= NOW();
 
 -- Usuario único para la API
-CREATE USER IF NOT EXISTS 'app_api'@'%' IDENTIFIED BY 'Api@2025!';
+CREATE USER IF NOT EXISTS 'app_api'@'%' IDENTIFIED BY 'Api_2025!';
 
 ALTER USER 'app_api'@'%' IDENTIFIED BY 'Api_2025!';
 
