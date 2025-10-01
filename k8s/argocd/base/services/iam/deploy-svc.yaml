@@ -34,7 +34,7 @@ spec:
       serviceAccountName: app-eventos
       containers:
         - name: app
-          image: emeday17/eventos-iam:latest   # ajusta tu tag si corresponde
+          image: eventos-iam  # ajusta tu tag si corresponde
           imagePullPolicy: Always
           env:
             - name: BASE_PATH
