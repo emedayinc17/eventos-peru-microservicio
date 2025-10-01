@@ -93,7 +93,7 @@ vault kv put kv/eventos-peru/iam \
   DB_HOST=mysql.eventos-peru.svc.cluster.local \
   DB_PORT=3306 \
   DB_USER=app_iam \
-  DB_PASS='IAM_2025!' \
+  DB_PASS='IAM_2025' \
   DB_NAME=ev_iam \
   JWT_SECRET='cZrjiiFKBxwuScQv1qA11XevZYcLMq' \
   ACCESS_TOKEN_EXPIRE_MINUTES=60

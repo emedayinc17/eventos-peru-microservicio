@@ -1,19 +1,17 @@
 /* ============================================================
    SOA EVENTOS PERÚ — MVP (Catálogo, Proveedores, Contratación + IAM)
    MySQL 8 — InnoDB, utf8mb4 (Estructura + Seeds + Usuarios)
-   Ajustes incluidos:
-     - Nuevo dominio ev_iam (usuarios, roles, sesiones, auditoría)
-     - Campos created_by / updated_by para trazabilidad de actor
-     - CHECKs de vigencias, vistas de precio vigente y paquete detalle
-     - Unicidad de idempotencia (holds y pedidos)
-     - Índices de performance (soft-delete, tiempo, estado)
-     - Consistencia de importes en ítems
+   Ajustes de idempotencia:
+     - CHECK constraints protegidos (no fallan al re-ejecutar)
+     - CREATE UNIQUE INDEX ... IF NOT EXISTS
+     - DEFAULT CURRENT_TIMESTAMP en vez de NOW()
    IDs: CHAR(36) (UUID)
    ============================================================ */
 
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
--- SET GLOBAL event_scheduler = ON; -- (si usas el EVENT de limpieza de holds)
+-- Sugerido si usas el EVENT de limpieza de holds:
+-- SET GLOBAL event_scheduler = ON;
 
 /* =========================
    0) ESQUEMAS (MVP)
@@ -44,13 +42,13 @@ CREATE TABLE IF NOT EXISTS ev_iam.usuario (
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS ev_iam.rol (
-  id           CHAR(36)    PRIMARY KEY,
-  codigo       VARCHAR(50) NOT NULL,
+  id           CHAR(36)     PRIMARY KEY,
+  codigo       VARCHAR(50)  NOT NULL,
   nombre       VARCHAR(120) NOT NULL,
   descripcion  VARCHAR(255) NULL,
-  status       TINYINT     NOT NULL DEFAULT 1,
-  created_at   TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at   TIMESTAMP   NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  status       TINYINT      NOT NULL DEFAULT 1,
+  created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP    NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_rol_codigo (codigo),
   INDEX idx_rol_status (status)
 ) ENGINE=InnoDB;
@@ -85,7 +83,7 @@ CREATE TABLE IF NOT EXISTS ev_iam.sesion (
 -- Auditoría de acciones (genérica, cross-domain)
 CREATE TABLE IF NOT EXISTS ev_iam.evento_audit (
   id          CHAR(36)    PRIMARY KEY,
-  fecha_hora  DATETIME    NOT NULL DEFAULT NOW(),
+  fecha_hora  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP, -- <== antes decía NOW()
   actor_id    CHAR(36)    NULL,           -- usuario que ejecuta (lógico a ev_iam.usuario.id)
   entidad     VARCHAR(80) NOT NULL,       -- ej: 'pedido_evento','reserva_temporal', etc.
   entidad_id  CHAR(36)    NOT NULL,
@@ -154,11 +152,21 @@ CREATE TABLE IF NOT EXISTS ev_catalogo.precio_servicio (
   INDEX idx_precio_actor(created_by)
 ) ENGINE=InnoDB;
 
--- Reglas de vigencia + unicidad práctica
-ALTER TABLE ev_catalogo.precio_servicio
-  ADD CONSTRAINT chk_ps_rango
-  CHECK (vigente_hasta IS NULL OR vigente_hasta > vigente_desde);
-CREATE UNIQUE INDEX uq_precio_op_ini
+-- CHECK de rango (idempotente)
+SET @c := (
+  SELECT COUNT(*) FROM information_schema.table_constraints
+  WHERE constraint_schema='ev_catalogo'
+    AND table_name='precio_servicio'
+    AND constraint_name='chk_ps_rango'
+    AND constraint_type='CHECK'
+);
+SET @sql := IF(@c=0,
+  'ALTER TABLE ev_catalogo.precio_servicio ADD CONSTRAINT chk_ps_rango CHECK (vigente_hasta IS NULL OR vigente_hasta > vigente_desde)',
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Índice único (idempotente)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_precio_op_ini
   ON ev_catalogo.precio_servicio (opcion_servicio_id, vigente_desde);
 
 /* ============================================================
@@ -201,10 +209,21 @@ CREATE TABLE IF NOT EXISTS ev_paquetes.precio_paquete (
   INDEX idx_precio_pkg_actor (created_by)
 ) ENGINE=InnoDB;
 
-ALTER TABLE ev_paquetes.precio_paquete
-  ADD CONSTRAINT chk_pp_rango
-  CHECK (vigente_hasta IS NULL OR vigente_hasta > vigente_desde);
-CREATE UNIQUE INDEX uq_precio_pkg_ini
+-- CHECK de rango (idempotente)
+SET @c := (
+  SELECT COUNT(*) FROM information_schema.table_constraints
+  WHERE constraint_schema='ev_paquetes'
+    AND table_name='precio_paquete'
+    AND constraint_name='chk_pp_rango'
+    AND constraint_type='CHECK'
+);
+SET @sql := IF(@c=0,
+  'ALTER TABLE ev_paquetes.precio_paquete ADD CONSTRAINT chk_pp_rango CHECK (vigente_hasta IS NULL OR vigente_hasta > vigente_desde)',
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Índice único (idempotente)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_precio_pkg_ini
   ON ev_paquetes.precio_paquete (paquete_id, vigente_desde);
 
 /* ============================================================
@@ -215,7 +234,7 @@ CREATE TABLE IF NOT EXISTS ev_proveedores.proveedor (
   nombre       VARCHAR(150) NOT NULL,
   email        VARCHAR(150) NULL,
   telefono     VARCHAR(50)  NULL,
-  rating_prom  DECIMAL(3,2) NULL DEFAULT 0.0,
+  rating_prom  DECIMAL(3,2) NULL DEFAULT 0.00,
   status       TINYINT      NOT NULL DEFAULT 1,
   created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at   TIMESTAMP    NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -267,7 +286,7 @@ CREATE TABLE IF NOT EXISTS ev_proveedores.reserva_temporal (
 ) ENGINE=InnoDB;
 
 -- Idempotencia de holds (por proveedor + correlation_id)
-CREATE UNIQUE INDEX uq_hold_corr
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hold_corr
   ON ev_proveedores.reserva_temporal (proveedor_id, correlation_id);
 
 /* ============================================================
@@ -329,20 +348,29 @@ CREATE TABLE IF NOT EXISTS ev_contratacion.reserva (
   INDEX idx_reserva_actor     (created_by)
 ) ENGINE=InnoDB;
 
--- Idempotencia de pedido y consistencia de importes
-CREATE UNIQUE INDEX uq_ped_request
+-- Idempotencia de pedido
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ped_request
   ON ev_contratacion.pedido_evento (request_id);
 
-ALTER TABLE ev_contratacion.item_pedido_evento
-  ADD CONSTRAINT chk_item_importe
-  CHECK (precio_total = precio_unit * cantidad);
+-- Consistencia de importes (idempotente)
+SET @c := (
+  SELECT COUNT(*) FROM information_schema.table_constraints
+  WHERE constraint_schema='ev_contratacion'
+    AND table_name='item_pedido_evento'
+    AND constraint_name='chk_item_importe'
+    AND constraint_type='CHECK'
+);
+SET @sql := IF(@c=0,
+  'ALTER TABLE ev_contratacion.item_pedido_evento ADD CONSTRAINT chk_item_importe CHECK (precio_total = precio_unit * cantidad)',
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 /* ============================================================
    6) ÍNDICES de soporte a soft-delete/consultas rápidas
    ============================================================ */
-CREATE INDEX idx_tipo_evento_activo ON ev_catalogo.tipo_evento    (is_deleted, status);
-CREATE INDEX idx_servicio_activo    ON ev_catalogo.servicio       (is_deleted, status);
-CREATE INDEX idx_opcion_activa      ON ev_catalogo.opcion_servicio(is_deleted, status);
+CREATE INDEX IF NOT EXISTS idx_tipo_evento_activo ON ev_catalogo.tipo_evento    (is_deleted, status);
+CREATE INDEX IF NOT EXISTS idx_servicio_activo    ON ev_catalogo.servicio       (is_deleted, status);
+CREATE INDEX IF NOT EXISTS idx_opcion_activa      ON ev_catalogo.opcion_servicio(is_deleted, status);
 
 /* ============================================================
    7) VISTAS de lectura (read-models)
@@ -407,25 +435,16 @@ INSERT INTO ev_iam.rol (id, codigo, nombre, descripcion, status) VALUES
  ('aaaa1111-1111-1111-1111-aaaaaaaaaaa2','CLIENTE','Cliente','Usuario final que contrata eventos',1)
 ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), descripcion=VALUES(descripcion), status=VALUES(status);
 
--- password_hash: ejemplo, reemplaza por tu hash real al crear usuario
+-- Usuario demo: reemplaza por tu hash real si deseas
 INSERT INTO ev_iam.usuario (id, email, password_hash, nombre, telefono, status)
 VALUES
  ('aaaa2222-2222-2222-2222-aaaaaaaaaaa2','demo@eventos.pe','$2b$12$Q.DCX/Ttbd2uWo8QNGw/LeRcSUpgP1oGN4Rz18mcFpMV0tXIi5Ziy', 'Usuario Demo', '+51 900 000 000', 1)
 ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), telefono=VALUES(telefono), status=VALUES(status);
 
-SELECT email,
-       CHAR_LENGTH(password_hash) AS len,
-       password_hash
-FROM ev_iam.usuario
-WHERE email='demo@eventos.pe';
-
-
+-- (opcional) actualizar hash de prueba
 UPDATE ev_iam.usuario
 SET password_hash = '$2b$12$fHZoWsqYuYLtGuX5fdUifOp.3r.U5gGvfIUZlt9otvDAuyJ6H3Mui'
 WHERE email = 'demo@eventos.pe';
-
-SELECT email, status, is_deleted FROM ev_iam.usuario WHERE email='demo@eventos.pe';
-
 
 INSERT INTO ev_iam.usuario_rol (id, usuario_id, rol_id) VALUES
  ('aaaa3333-3333-3333-3333-aaaaaaaaaaa3','aaaa2222-2222-2222-2222-aaaaaaaaaaa2','aaaa1111-1111-1111-1111-aaaaaaaaaaa2') -- CLIENTE
@@ -437,8 +456,6 @@ INSERT INTO ev_catalogo.tipo_evento (id, nombre, descripcion, status) VALUES
  ('22222222-2222-2222-2222-222222222222','Cumpleaños','Fiestas de cumpleaños',1),
  ('33333333-3333-3333-3333-333333333333','Corporativo','Eventos empresariales',1)
 ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), descripcion=VALUES(descripcion), status=VALUES(status);
-
-select * from ev_catalogo.tipo_evento
 
 INSERT INTO ev_catalogo.servicio (id, nombre, descripcion, tipo_evento_id, status) VALUES
  ('44444444-4444-4444-4444-444444444444','Catering','Alimentos y bebidas','11111111-1111-1111-1111-111111111111',1),
@@ -455,7 +472,7 @@ ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), detalles=VALUES(detalles), status
 INSERT INTO ev_catalogo.precio_servicio (id, opcion_servicio_id, moneda, monto, vigente_desde, vigente_hasta, created_by) VALUES
  ('aaaaaaa0-aaaa-aaaa-aaaa-aaaaaaaaaaa0','77777777-7777-7777-7777-777777777777','PEN',6500.00, CURRENT_DATE(), NULL, 'aaaa2222-2222-2222-2222-aaaaaaaaaaa2'),
  ('aaaaaaa1-aaaa-aaaa-aaaa-aaaaaaaaaaa1','88888888-8888-8888-8888-888888888888','PEN',1800.00, CURRENT_DATE(), NULL, 'aaaa2222-2222-2222-2222-aaaaaaaaaaa2'),
- ('aaaaaaa2-aaaa-aaaa-aaaa-aaaaaaaaaaa2','99999999-9999-9999-9999-999999999999','PEN',4000.00, CURRENT_DATE(), NULL, 'aaaa2222-2222-2222-2222-aaaaaaaaaaa2')
+ ('aaaaaaa2-aaaa-aaaa-aaaa-aaaaaaaaaaa2','99999999-9999-9999-999999999999','PEN',4000.00, CURRENT_DATE(), NULL, 'aaaa2222-2222-2222-2222-aaaaaaaaaaa2')
 ON DUPLICATE KEY UPDATE monto=VALUES(monto), vigente_hasta=VALUES(vigente_hasta);
 
 -- Paquete “Premium 100 pax”
@@ -466,7 +483,7 @@ ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), descripcion=VALUES(descripcion), 
 INSERT INTO ev_paquetes.item_paquete (id, paquete_id, opcion_servicio_id, cantidad) VALUES
  ('bbbbbbb1-bbbb-bbbb-bbbb-bbbbbbbbbbb1','bbbbbbb0-bbbb-bbbb-bbbb-bbbbbbbbbbb0','77777777-7777-7777-7777-777777777777',1),
  ('bbbbbbb2-bbbb-bbbb-bbbb-bbbbbbbbbbb2','bbbbbbb0-bbbb-bbbb-bbbb-bbbbbbbbbbb0','88888888-8888-8888-8888-888888888888',1),
- ('bbbbbbb3-bbbb-bbbb-bbbb-bbbbbbbbbbb3','bbbbbbb0-bbbb-bbbb-bbbb-bbbbbbbbbbb0','99999999-9999-9999-9999-999999999999',1)
+ ('bbbbbbb3-bbbb-bbbb-bbbb-bbbbbbbbbbb3','bbbbbbb0-bbbb-bbbb-bbbb-bbbbbbbbbbb0','99999999-9999-9999-999999999999',1)
 ON DUPLICATE KEY UPDATE cantidad=VALUES(cantidad);
 
 INSERT INTO ev_paquetes.precio_paquete (id, paquete_id, moneda, monto, vigente_desde, vigente_hasta, created_by) VALUES
@@ -475,9 +492,9 @@ ON DUPLICATE KEY UPDATE monto=VALUES(monto), vigente_hasta=VALUES(vigente_hasta)
 
 -- Proveedores base
 INSERT INTO ev_proveedores.proveedor (id, nombre, email, telefono, rating_prom, status, created_by) VALUES
- ('ccccccc0-cccc-cccc-cccc-ccccccccccc0','Sazón & Sabor','contacto@sazonsabor.pe','+51 900 111 222',4.7,1,'aaaa2222-2222-2222-2222-aaaaaaaaaaa2'),
- ('ccccccc1-cccc-cccc-cccc-ccccccccccc1','DJ Lima Beats','dj@limabeats.pe','+51 900 333 444',4.6,1,'aaaa2222-2222-2222-2222-aaaaaaaaaaa2'),
- ('ccccccc2-cccc-cccc-cccc-ccccccccccc2','Centro de Eventos Miraflores','reservas@cem.pe','+51 900 555 666',4.5,1,'aaaa2222-2222-2222-2222-aaaaaaaaaaa2')
+ ('ccccccc0-cccc-cccc-cccc-ccccccccccc0','Sazón & Sabor','contacto@sazonsabor.pe','+51 900 111 222',4.70,1,'aaaa2222-2222-2222-2222-aaaaaaaaaaa2'),
+ ('ccccccc1-cccc-cccc-cccc-ccccccccccc1','DJ Lima Beats','dj@limabeats.pe','+51 900 333 444',4.60,1,'aaaa2222-2222-2222-2222-aaaaaaaaaaa2'),
+ ('ccccccc2-cccc-cccc-cccc-ccccccccccc2','Centro de Eventos Miraflores','reservas@cem.pe','+51 900 555 666',4.50,1,'aaaa2222-2222-2222-2222-aaaaaaaaaaa2')
 ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), email=VALUES(email), telefono=VALUES(telefono), rating_prom=VALUES(rating_prom), status=VALUES(status);
 
 INSERT INTO ev_proveedores.habilidad_proveedor (id, proveedor_id, servicio_id, nivel) VALUES
@@ -527,7 +544,7 @@ CREATE EVENT ev_proveedores.evt_expira_holds
 
 -- Usuario único para la API
 CREATE USER IF NOT EXISTS 'app_api'@'%' IDENTIFIED BY 'Api_2025!';
-
+-- Forzar/actualizar password en cada corrida (no rompe)
 ALTER USER 'app_api'@'%' IDENTIFIED BY 'Api_2025!';
 
 -- Lectura catálogo y paquetes
@@ -544,14 +561,12 @@ GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX ON ev_paquetes.*      TO 'a
 
 FLUSH PRIVILEGES;
 
-SHOW GRANTS FOR 'app_api'@'%';
-
-SELECT * FROM ev_iam.usuario;
-SELECT COUNT(*) FROM ev_iam.usuario;
-SELECT COUNT(*) FROM ev_proveedores.proveedor;
-SELECT COUNT(*) FROM ev_contratacion.pedido_evento;
-SELECT COUNT(*) FROM ev_contratacion.item_pedido_evento;
-
+-- Comprobaciones rápidas (opcionales)
+-- SHOW GRANTS FOR 'app_api'@'%';
+-- SELECT COUNT(*) AS usuarios       FROM ev_iam.usuario;
+-- SELECT COUNT(*) AS proveedores    FROM ev_proveedores.proveedor;
+-- SELECT COUNT(*) AS pedidos        FROM ev_contratacion.pedido_evento;
+-- SELECT COUNT(*) AS items_pedido   FROM ev_contratacion.item_pedido_evento;
 
 /* =========================
    FIN SQL CONSOLIDADO MVP++
