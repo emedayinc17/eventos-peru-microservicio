@@ -33,6 +33,8 @@ spec:
           image: proveedores    # overlay -> emeday17/eventos-proveedores:<tag>
           imagePullPolicy: Always
           env:
+            - name: BASE_PATH
+              value: "/proveedores"
             - name: PYTHONPATH
               value: /app/libs:/app/services/proveedores-service
             - name: PORT

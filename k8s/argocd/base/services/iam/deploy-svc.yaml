@@ -36,6 +36,8 @@ spec:
           image: eventos-iam  # overlay -> emeday17/eventos-iam:<tag>
           imagePullPolicy: Always
           env:
+            - name: BASE_PATH
+              value: "/iam"
             - name: PYTHONPATH
               value: /app/libs:/app/services/iam-service
             - name: PORT

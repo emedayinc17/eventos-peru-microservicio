@@ -37,6 +37,8 @@ spec:
           image: contratacion   # overlay -> emeday17/eventos-contratacion:<tag>
           imagePullPolicy: Always
           env:
+            - name: BASE_PATH
+              value: "/contratacion"
             - name: PYTHONPATH
               value: /app/libs:/app/services/contratacion-service
             - name: PORT
