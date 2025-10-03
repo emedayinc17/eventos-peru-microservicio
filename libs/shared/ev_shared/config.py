@@ -1,26 +1,52 @@
-# libs/shared/config.py
+# libs/shared/ev_shared/config.py (patched)
 from pathlib import Path
 from urllib.parse import quote_plus
-
 from pydantic import Field, field_validator, computed_field, conint
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 def vault_or_env_path():
     """
-    Prioridad de carga de variables:
-    1) /vault/secrets/config  (cuando corres en K8s con Vault Agent)
-    2) ./.env                 (cuando corres local con uvicorn)
+    Prioridad:
+      1) /vault/secrets/config  (cuando corres en K8s con Vault Agent)
+      2) .env del servicio      (services/<svc>/.env) — localizado automáticamente
+      3) .env del working dir   (fallback para compatibilidad)
+    Esto evita dependencia del directorio actual.
     """
     vault_file = Path("/vault/secrets/config")
-    local_env = Path(".env")
+
+    # Este archivo está en libs/shared/ev_shared/config.py
+    # parents: [0]=config.py, [1]=ev_shared, [2]=shared, [3]=libs, [4]=<repo_root>
+    repo_root = Path(__file__).resolve().parents[4]
+
+    # Candidatos a .env por servicio
+    svc_env_candidates = []
+    services_dir = repo_root / "services"
+    if services_dir.exists():
+        for svc in services_dir.iterdir():
+            if svc.is_dir():
+                env_path = svc / ".env"
+                if env_path.exists():
+                    svc_env_candidates.append(env_path.resolve())
+
+    # Fallback: .env del cwd
+    cwd_env = Path(".env").resolve()
+    if cwd_env.exists():
+        svc_env_candidates.append(cwd_env)
+
     paths = []
     if vault_file.exists():
         paths.append(str(vault_file))
-    if local_env.exists():
-        paths.append(str(local_env))
-    return tuple(paths) if paths else None
 
+    # El primer .env que exista gana
+    for p in svc_env_candidates:
+        try:
+            if p.exists():
+                paths.append(str(p))
+                break
+        except Exception:
+            continue
+
+    return tuple(paths) if paths else None
 
 class Settings(BaseSettings):
     # App
@@ -39,13 +65,8 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str
     JWT_ALG: str = Field(default="HS256")
-    # Acepta también ACCESS_TOKEN_EXPIRE_MINUTES como alias (por Vault o .env antiguos)
-    JWT_EXPIRE_MIN: conint(gt=0) = Field(
-        default=120,
-        validation_alias="ACCESS_TOKEN_EXPIRE_MINUTES"
-    )
+    JWT_EXPIRE_MIN: conint(gt=0) = Field(default=120)
 
-    # pydantic-settings: primero Vault, luego .env, y finalmente variables de entorno
     model_config = SettingsConfigDict(
         env_file=vault_or_env_path(),
         env_file_encoding="utf-8",
@@ -53,76 +74,35 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # ---------- Normalizaciones / saneos útiles ----------
-
     @field_validator("DB_PORT", mode="before")
     @classmethod
     def parse_db_port(cls, v):
-        # Soporta strings tipo "tcp://host:3306" o "3306"
-        if isinstance(v, str):
-            if "://" in v and ":" in v:
-                try:
-                    return int(v.split(":")[-1])
-                except Exception:
-                    pass
+        if isinstance(v, str) and "://" in v:
             try:
-                return int(v)
+                return int(v.split(":")[-1])
             except Exception:
                 pass
         return int(v)
 
     @field_validator("DB_HOST", mode="before")
     @classmethod
-    def normalize_db_host(cls, v):
-        """
-        Limpia formatos problemáticos:
-        - "tcp://host:3306"  -> "host"
-        - "user:pass@host"   -> "host"
-        - "pass@host"        -> "host"
-        """
-        if not isinstance(v, str):
-            return v
-
-        s = v.strip()
-
-        # Si viene con protocolo
-        if "://" in s:
+    def parse_db_host(cls, v):
+        if isinstance(v, str) and "://" in v:
             try:
-                s = s.split("://", 1)[1]
+                host_port = v.split("://", 1)[1]
+                return host_port.split(":")[0]
             except Exception:
                 pass
-
-        # Si viene con "algo@host" (userinfo pegado por error)
-        if "@" in s and "@" != s[0]:
-            try:
-                s = s.split("@", 1)[1]
-            except Exception:
-                pass
-
-        # Quita puerto si viene pegado
-        if ":" in s:
-            s = s.split(":", 1)[0]
-
-        return s.strip()
-
-    # ---------- Propiedades derivadas ----------
+        return v
 
     @computed_field
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
-        """
-        Construye un DSN seguro con URL-encoding en user/pass para
-        soportar caracteres especiales (!, @, :, #, etc.).
-        """
         user = quote_plus(self.DB_USER)
         password = quote_plus(self.DB_PASS)
         host = self.DB_HOST
         port = self.DB_PORT
         name = self.DB_NAME
-        return (
-            f"mysql+pymysql://{user}:{password}"
-            f"@{host}:{port}/{name}?charset=utf8mb4"
-        )
-
+        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
 
 settings = Settings()

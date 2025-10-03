@@ -37,10 +37,12 @@ vault write auth/kubernetes/role/eventos-peru-role \
 vault read auth/kubernetes/role/eventos-peru-role
 
 # 3) 
+
+
 Catálogo
 vault kv patch kv/eventos-peru/catalogo \
   APP_ENV='prod' \
-  DB_HOST='mysql' \
+  DB_HOST='mysql.eventos-peru.svc.cluster.local' \
   DB_PORT='3306' \
   DB_USER='app_catalogo' \
   DB_PASS='Catalogo_2025' \
@@ -56,7 +58,7 @@ vault kv patch kv/eventos-peru/catalogo \
 Proveedores
 vault kv patch kv/eventos-peru/proveedores \
   APP_ENV='prod' \
-  DB_HOST='mysql' \
+  DB_HOST='mysql.eventos-peru.svc.cluster.local' \
   DB_PORT='3306' \
   DB_USER='app_proveedores' \
   DB_PASS='Proveedores_2025' \
@@ -73,7 +75,7 @@ vault kv patch kv/eventos-peru/proveedores \
 Contratación
 vault kv patch kv/eventos-peru/contratacion \
   APP_ENV='prod' \
-  DB_HOST='mysql' \
+  DB_HOST='mysql.eventos-peru.svc.cluster.local' \
   DB_PORT='3306' \
   DB_USER='app_contratacion' \
   DB_PASS='Contrata_2025' \

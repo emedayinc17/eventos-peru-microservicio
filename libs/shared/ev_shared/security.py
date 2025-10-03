@@ -21,7 +21,7 @@ def create_jwt(*, sub: str, email: str, roles: list[str], expires_minutes: int |
         "roles": roles,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=exp_minutes)).timestamp()),
-        "iss": settings.APP_NAME,
+        "iss": getattr(settings, "JWT_ISSUER", settings.APP_NAME),
     }
     token = jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALG)
     return token

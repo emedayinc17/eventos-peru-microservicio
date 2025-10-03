@@ -1,0 +1,3 @@
+# NOTE: En tu services/<svc>/app/core/deps.py asegúrate de usar:
+# from ev_shared.security import decode_jwt
+# (en vez de) from app.core.security import decode_jwt

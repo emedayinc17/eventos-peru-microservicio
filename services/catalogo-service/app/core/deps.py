@@ -3,7 +3,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.db.session import SessionLocal
-from app.core.security import decode_jwt
+from ev_shared.security import decode_jwt
 from typing import Iterable
 from app.repositories.iam_repo import get_user_roles  # ← usa tu función
 from jwt import ExpiredSignatureError, InvalidTokenError
